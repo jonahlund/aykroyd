@@ -52,6 +52,8 @@ Like most crates in the Rust ecosystem this project adheres to
 [Keep a Changelog]: https://keepachangelog.com/en/1.1.0/
 [Semantic Versioning]: https://semver.org/spec/v2.0.0.html
 [Unreleased]: https://git.sr.ht/~couch/aykroyd/log
+[v0.3.0]: https://git.sr.ht/~couch/aykroyd/refs/v0.3.0
+[v0.3.0-log]: https://git.sr.ht/~couch/aykroyd/log/v0.3.0
 [v0.2.0]: https://git.sr.ht/~couch/aykroyd/refs/v0.2.0
 [v0.2.0-log]: https://git.sr.ht/~couch/aykroyd/log/v0.2.0
 [v0.1.1]: https://git.sr.ht/~couch/aykroyd/refs/v0.1.1
