@@ -5,12 +5,12 @@ pub use deadpool;
 pub use tokio_postgres;
 
 use async_trait::async_trait;
-use aykroyd::tokio_postgres::Client;
+use aykroyd::tokio_postgres::{Client, Error};
 use tokio_postgres::tls::{MakeTlsConnect, TlsConnect};
 use tokio_postgres::Socket;
 
-type RecycleResult = deadpool::managed::RecycleResult<tokio_postgres::Error>;
-type RecycleError = deadpool::managed::RecycleError<tokio_postgres::Error>;
+type RecycleResult = deadpool::managed::RecycleResult<Error>;
+type RecycleError = deadpool::managed::RecycleError<Error>;
 
 pub use deadpool_postgres::{ManagerConfig, RecyclingMethod};
 
@@ -21,7 +21,7 @@ pub type Pool<T> = deadpool::managed::Pool<Manager<T>, deadpool::managed::Object
 /// A builder for the pool type, parameterized on TLS.
 pub type PoolBuilder<T> = deadpool::managed::PoolBuilder<Manager<T>>;
 /// This pool's error type.
-pub type PoolError = deadpool::managed::PoolError<tokio_postgres::Error>;
+pub type PoolError = deadpool::managed::PoolError<Error>;
 
 /// A manager for `aykroyd` database connections.
 #[derive(Debug)]
@@ -56,10 +56,13 @@ where
     <T::TlsConnect as TlsConnect<Socket>>::Future: Send,
 {
     type Type = Client;
-    type Error = tokio_postgres::Error;
+    type Error = Error;
 
-    async fn create(&self) -> Result<Client, tokio_postgres::Error> {
-        let (client, connection) = self.pg_config.connect(self.tls.clone()).await?;
+    async fn create(&self) -> Result<Client, Error> {
+        let (client, connection) = self.pg_config
+            .connect(self.tls.clone())
+            .await
+            .map_err(Error::connect)?;
         tokio::spawn(async move {
             if let Err(e) = connection.await {
                 //log::warn!(target: "deadpool.postgres", "Connection error: {}", e);
@@ -76,9 +79,7 @@ where
         match self.config.recycling_method.query() {
             Some(sql) => match client.as_ref().simple_query(sql).await {
                 Ok(_) => Ok(()),
-                Err(e) => {
-                    Err(e.into())
-                }
+                Err(e) => Err(Error::query(e))?,
             },
             None => Ok(()),
         }
