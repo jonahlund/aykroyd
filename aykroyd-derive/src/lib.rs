@@ -310,7 +310,7 @@ fn impl_static_query_text(
     quote! {
         #[automatically_derived]
         impl #generics ::aykroyd::query::StaticQueryText for #name #generics_simple {
-            const QUERY_TEXT: &'static str = #query_text;
+            const QUERY_TEXT: &'static ::std::primitive::str = #query_text;
         }
     }
 }
@@ -365,9 +365,9 @@ fn impl_to_params(
     }
 
     let body = if params.is_empty() {
-        quote!(None)
+        quote!(::std::option::Option::None)
     } else {
-        quote!(Some(vec![#(#params,)*]))
+        quote!(::std::option::Option::Some(::std::vec![#(#params,)*]))
     };
 
     let generics_simple = simplify(generics);
@@ -379,7 +379,13 @@ fn impl_to_params(
             C: ::aykroyd::client::Client,
             #(#wheres,)*
         {
-            fn to_params(&self) -> Option<Vec<<C as ::aykroyd::client::Client>::Param<'_>>> {
+            fn to_params(
+                &self
+            ) -> ::std::option::Option<
+                ::std::vec::Vec<
+                    <C as ::aykroyd::client::Client>::Param<'_>
+                >
+            > {
                 #body
             }
         }
@@ -622,7 +628,7 @@ impl FieldInfo {
                 syn::Lit::Int(_) => Ok(Key::Index),
                 syn::Lit::Str(_) => Ok(Key::Name),
                 _ => Err(quote::quote_spanned! {
-                    lit.span() => compile_error!("invalid column key");
+                    lit.span() => ::std::compile_error!("invalid column key");
                 }),
             })
             .transpose()?;
@@ -635,13 +641,13 @@ impl FieldInfo {
                         Some(syn::Lit::Int(_)) => {}
                         Some(lit) => {
                             return Err(quote::quote_spanned! {
-                                lit.span() => compile_error!("expected column index");
+                                lit.span() => ::std::compile_error!("expected column index");
                             });
                         }
                         None => {
                             use syn::spanned::Spanned;
                             return Err(quote::quote_spanned! {
-                                field.ty.span() => compile_error!("expected column index");
+                                field.ty.span() => ::std::compile_error!("expected column index");
                             });
                         }
                     },
@@ -650,7 +656,7 @@ impl FieldInfo {
                             Some(syn::Lit::Str(_)) => {}
                             Some(lit) => {
                                 return Err(quote::quote_spanned! {
-                                    lit.span() => compile_error!("expected column name");
+                                    lit.span() => ::std::compile_error!("expected column name");
                                 });
                             }
                             None => {} // n.b. not all named columns need explicit names
@@ -679,7 +685,7 @@ fn impl_from_row(key: Key, name: &syn::Ident) -> proc_macro2::TokenStream {
         {
             fn from_row(
                 row: &C::Row<'_>,
-            ) -> Result<Self, ::aykroyd::error::Error<C::Error>> {
+            ) -> ::std::result::Result<Self, ::aykroyd::error::Error<C::Error>> {
                 ::aykroyd::row::#trait_ty::from_columns(
                     ::aykroyd::row::#column_ty::new(row),
                 )
@@ -793,7 +799,7 @@ fn impl_from_columns(
     };
 
     let num_columns = match key {
-        Key::Index => quote!(const NUM_COLUMNS: usize = #num_const #(#plus_nesteds)*;),
+        Key::Index => quote!(const NUM_COLUMNS: ::std::primitive::usize = #num_const #(#plus_nesteds)*;),
         Key::Name => quote!(),
     };
 
@@ -808,8 +814,8 @@ fn impl_from_columns(
 
             fn from_columns(
                 columns: ::aykroyd::row::#column_ty<C>,
-            ) -> Result<Self, ::aykroyd::error::Error<C::Error>> {
-                Ok(#name #field_list)
+            ) -> ::std::result::Result<Self, ::aykroyd::error::Error<C::Error>> {
+                ::std::result::Result::Ok(#name #field_list)
             }
         }
     }
