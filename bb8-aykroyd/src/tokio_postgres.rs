@@ -5,10 +5,10 @@ pub use bb8;
 pub use tokio_postgres;
 
 use async_trait::async_trait;
-use aykroyd::tokio_postgres::Client;
+use aykroyd::tokio_postgres::{Client, Error};
 use tokio_postgres::config::Config;
 use tokio_postgres::tls::{MakeTlsConnect, TlsConnect};
-use tokio_postgres::{Error, Socket};
+use tokio_postgres::Socket;
 
 use std::fmt;
 
@@ -39,7 +39,8 @@ where
     where
         T: ToString,
     {
-        let inner = bb8_postgres::PostgresConnectionManager::new_from_stringlike(params, tls)?;
+        let inner = bb8_postgres::PostgresConnectionManager::new_from_stringlike(params, tls)
+            .map_err(Error::connect)?;
         Ok(AykroydConnectionManager { inner })
     }
 }
@@ -56,12 +57,12 @@ where
     type Error = Error;
 
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-        let client = self.inner.connect().await?;
+        let client = self.inner.connect().await.map_err(Error::connect)?;
         Ok(Client::new(client))
     }
 
     async fn is_valid(&self, conn: &mut Self::Connection) -> Result<(), Self::Error> {
-        self.inner.is_valid(conn.as_mut()).await
+        self.inner.is_valid(conn.as_mut()).await.map_err(Error::connect)
     }
 
     fn has_broken(&self, conn: &mut Self::Connection) -> bool {
