@@ -11,6 +11,11 @@ Like most crates in the Rust ecosystem this project adheres to
 
 - *nothing yet*
 
+## [v0.3.1] - 2024-02-20 ([Log][v0.3.1-log])
+
+- Restores `AsRef` and `AsMut` implementations for `Transaction`s,
+  and adds them for each transaction type new in v0.3.
+
 ## [v0.3.0] - 2024-01-29 ([Log][v0.3.0-log])
 
 - Support for the MySQL and SQLite databases, in addition to
