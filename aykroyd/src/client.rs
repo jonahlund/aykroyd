@@ -161,6 +161,14 @@ pub mod specification {
     //! Databases that offer transaction control should follow the
     //! following transactions interface.
     //!
+    //! ## `std` Traits
+    //!
+    //! Since the transactions generally wrap the underlying driver's
+    //! transaction, they should implement the following traits:
+    //!
+    //! * [`AsRef<Driver>`], for shared access to the driver's transaction, and
+    //! * [`AsMut<Driver>`], for exclusive access to the driver's transaction.
+    //!
     //! ### Sync Transaction Interface
     //!
     //! ```

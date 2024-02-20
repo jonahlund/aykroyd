@@ -414,6 +414,18 @@ impl Client {
 #[derive(Debug)]
 pub struct Transaction<'a>(rusqlite::Transaction<'a>);
 
+impl<'a> AsMut<rusqlite::Transaction<'a>> for Transaction<'a> {
+    fn as_mut(&mut self) -> &mut rusqlite::Transaction<'a> {
+        &mut self.0
+    }
+}
+
+impl<'a> AsRef<rusqlite::Transaction<'a>> for Transaction<'a> {
+    fn as_ref(&self) -> &rusqlite::Transaction<'a> {
+        &self.0
+    }
+}
+
 impl<'a> Transaction<'a> {
     /// Consumes the transaction, committing all changes made within it.
     pub fn commit(self) -> Result<(), Error> {

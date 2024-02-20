@@ -301,6 +301,18 @@ pub struct Transaction<'a> {
     statements: &'a mut std::collections::HashMap<String, tokio_postgres::Statement>,
 }
 
+impl<'a> AsMut<postgres::Transaction<'a>> for Transaction<'a> {
+    fn as_mut(&mut self) -> &mut postgres::Transaction<'a> {
+        &mut self.txn
+    }
+}
+
+impl<'a> AsRef<postgres::Transaction<'a>> for Transaction<'a> {
+    fn as_ref(&self) -> &postgres::Transaction<'a> {
+        &self.txn
+    }
+}
+
 impl<'a> std::fmt::Debug for Transaction<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("Transaction").finish()

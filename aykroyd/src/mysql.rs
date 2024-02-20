@@ -337,6 +337,18 @@ impl Client {
 #[derive(Debug)]
 pub struct Transaction<'a>(mysql::Transaction<'a>);
 
+impl<'a> AsMut<mysql::Transaction<'a>> for Transaction<'a> {
+    fn as_mut(&mut self) -> &mut mysql::Transaction<'a> {
+        &mut self.0
+    }
+}
+
+impl<'a> AsRef<mysql::Transaction<'a>> for Transaction<'a> {
+    fn as_ref(&self) -> &mysql::Transaction<'a> {
+        &self.0
+    }
+}
+
 impl<'a> Transaction<'a> {
     /// Consumes the transaction, committing all changes made within it.
     pub fn commit(self) -> Result<(), Error> {
