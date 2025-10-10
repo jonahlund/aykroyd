@@ -23,7 +23,13 @@ derive = ["dep:aykroyd-derive"]
 mysql = ["dep:mysql"]
 postgres = ["dep:postgres", "dep:tokio-postgres"]
 rusqlite = ["dep:rusqlite"]
-tokio-postgres = ["dep:tokio-postgres", "dep:tokio", "dep:futures-util", "dep:futures-core"]
+tokio-postgres = [
+  "dep:tokio-postgres",
+  "dep:tokio",
+  "dep:futures-util",
+  "dep:futures-core",
+]
+turso = ["dep:turso", "dep:turso_core"]
 
 [dependencies.aykroyd-derive]
 path = "../aykroyd-derive"
@@ -56,6 +62,14 @@ optional = true
 
 [dependencies.tokio-postgres]
 version = "0.7"
+optional = true
+
+[dependencies.turso]
+version = "0.2"
+optional = true
+
+[dependencies.turso_core]
+version = "0.2"
 optional = true
 
 [dev-dependencies]
