@@ -108,7 +108,7 @@ impl Client {
         Ok(result)
     }
 
-    pub async fn query_one<Q: QueryOne<Self>>(&mut self, query: &Q) -> Result<Q::Row, Error> {
+    pub async fn query_one<Q: QueryOne<Self>>(&self, query: &Q) -> Result<Q::Row, Error> {
         let params = query.to_params().unwrap_or_default();
 
         let mut statement = turso::Connection::prepare(self.as_mut(), &query.query_text())
@@ -152,7 +152,7 @@ impl Client {
         Ok(rows_affected.try_into().unwrap_or_default())
     }
 
-    pub async fn transaction(&mut self) -> Result<Transaction<'_>, Error> {
+    pub async fn transaction(&self) -> Result<Transaction<'_>, Error> {
         Ok(Transaction(
             self.0.transaction().await.map_err(Error::transaction)?,
         ))
@@ -232,10 +232,7 @@ impl<'a> Transaction<'a> {
             .and_then(|row| FromRow::from_row(&row))
     }
 
-    pub async fn query_opt<Q: QueryOne<Client>>(
-        &mut self,
-        query: &Q,
-    ) -> Result<Option<Q::Row>, Error> {
+    pub async fn query_opt<Q: QueryOne<Client>>(&self, query: &Q) -> Result<Option<Q::Row>, Error> {
         let params = query.to_params().unwrap();
 
         let mut statement = turso::Connection::prepare(&self.0, &query.query_text())
