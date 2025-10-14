@@ -66,10 +66,14 @@ optional = true
 
 [dependencies.turso]
 version = "0.2"
+git = "https://github.com/jonahlund/turso"
+branch = "rust-bindings-col-names"
 optional = true
 
 [dependencies.turso_core]
 version = "0.2"
+git = "https://github.com/jonahlund/turso"
+branch = "rust-bindings-col-names"
 optional = true
 
 [dev-dependencies]
