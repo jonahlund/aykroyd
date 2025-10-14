@@ -1,3 +1,5 @@
+use rusqlite::params_from_iter;
+
 use crate::client::{FromColumnIndexed, FromColumnNamed, ToParam};
 use crate::query::StaticQueryText;
 use crate::{error, FromRow, Query, QueryOne, Statement};
@@ -9,7 +11,8 @@ where
     T: rusqlite::types::FromSql,
 {
     fn from_column(row: &rusqlite::Row, index: usize) -> Result<Self, Error> {
-        row.get(index).map_err(Error::from_column)
+        row.get(index)
+            .map_err(|e| Error::from_column(async_sqlite::Error::Rusqlite(e)))
     }
 }
 
@@ -18,15 +21,16 @@ where
     T: rusqlite::types::FromSql,
 {
     fn from_column(row: &rusqlite::Row, name: &str) -> Result<Self, Error> {
-        row.get(name).map_err(Error::from_column)
+        row.get(name)
+            .map_err(|e| Error::from_column(async_sqlite::Error::Rusqlite(e)))
     }
 }
 
 impl<T> ToParam<Client> for T
 where
-    T: rusqlite::types::ToSql,
+    T: rusqlite::types::ToSql + Send + Sync,
 {
-    fn to_param(&self) -> &dyn rusqlite::types::ToSql {
+    fn to_param(&self) -> &(dyn rusqlite::types::ToSql + Send + Sync) {
         self
     }
 }
@@ -36,7 +40,7 @@ pub struct Client(async_sqlite::Client);
 
 impl crate::client::Client for Client {
     type Row<'a> = rusqlite::Row<'a>;
-    type Param<'a> = &'a dyn rusqlite::types::ToSql;
+    type Param<'a> = &'a (dyn rusqlite::types::ToSql + Send + Sync);
     type Error = async_sqlite::Error;
 }
 
@@ -92,17 +96,20 @@ impl Client {
     }
 
     /// Run a query returning multiple rows.
-    pub async fn query<Q: Query<Self>>(&mut self, query: &Q) -> Result<Vec<Q::Row>, Error>
+    pub async fn query<Q: Query<Self> + Send + Sync + 'static>(
+        &mut self,
+        query: Q,
+    ) -> Result<Vec<Q::Row>, Error>
     where
-        Q::Row: FromRow<Self> + Send,
+        Q::Row: FromRow<Self> + Send + Sync + 'static,
     {
-        let sql = query.query_text();
-        let params = query.to_params();
-        let params: &[_] = params.as_ref().map(AsRef::as_ref).unwrap_or(&[][..]);
-
         let inner = &self.0;
         let rows_vec = inner
             .conn(move |conn| {
+                let sql = query.query_text();
+                let params = query.to_params().unwrap_or_default();
+                let params = params_from_iter(params.iter());
+
                 // This closure runs in the background on the connection's thread,
                 // so we can use rusqlite API synchronously here.
                 let mut stmt = conn.prepare_cached(&sql)?;
@@ -121,34 +128,24 @@ impl Client {
     }
 
     /// Query and expect exactly one row.
-    pub async fn query_one<Q: QueryOne<Self>>(&mut self, query: &Q) -> Result<Q::Row, Error>
+    pub async fn query_one<Q: QueryOne<Self> + Send + Sync + 'static>(
+        &mut self,
+        query: Q,
+    ) -> Result<Q::Row, Error>
     where
-        Q::Row: FromRow<Self> + Send,
+        Q::Row: FromRow<Self> + Send + Sync + 'static,
     {
-        let sql = query.query_text();
-        let params = query.to_params();
-        let params: &[_] = params.as_ref().map(AsRef::as_ref).unwrap_or(&[][..]);
-
         let inner = &self.0;
         let maybe_row = inner
             .conn(move |conn| {
-                let mut stmt = conn
-                    .prepare_cached(&sql)
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))?;
-                let mut rows = stmt
-                    .query(params)
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))?;
-                // Get first row or return QueryReturnedNoRows
-                let row = rows
-                    .next()
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))?
-                    .ok_or(async_sqlite::Error::Rusqlite(
-                        rusqlite::Error::QueryReturnedNoRows,
-                    ))?;
-                // Convert
-                let conv =
-                    FromRow::from_row(row).map_err(|e| async_sqlite::Error::Custom(Box::new(e)))?;
-                Ok::<_, async_sqlite::Error>(conv)
+                let sql = query.query_text();
+                let params = query.to_params().unwrap_or_default();
+                let params = params_from_iter(params.iter());
+
+                let mut stmt = conn.prepare_cached(&sql)?;
+                let mut rows = stmt.query(params)?;
+                let row = rows.next()?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+                Ok(FromRow::from_row(row).unwrap())
             })
             .await
             .map_err(Error::query)?;
@@ -157,30 +154,27 @@ impl Client {
     }
 
     /// Query optional (0 or 1 rows expected).
-    pub async fn query_opt<Q: QueryOne<Self>>(&mut self, query: &Q) -> Result<Option<Q::Row>, Error>
+    pub async fn query_opt<Q: QueryOne<Self> + Send + Sync + 'static>(
+        &mut self,
+        query: Q,
+    ) -> Result<Option<Q::Row>, Error>
     where
-        Q::Row: FromRow<Self> + Send,
+        Q::Row: FromRow<Self> + Send + Sync + 'static,
     {
-        let sql = query.query_text();
-        let params = query.to_params();
-        let params: &[_] = params.as_ref().map(AsRef::as_ref).unwrap_or(&[][..]);
-
         let inner = &self.0;
         let opt_row = inner
             .conn(move |conn| {
-                let mut stmt = conn
-                    .prepare_cached(&sql)
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))?;
-                let mut rows = stmt
-                    .query(params)
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))?;
+                let sql = query.query_text();
+                let params = query.to_params().unwrap_or_default();
+                let params = params_from_iter(params.iter());
 
-                if let Some(row) = rows.next().map_err(|e| async_sqlite::Error::Rusqlite(e))? {
-                    let conv = FromRow::from_row(row)
-                        .map_err(|e| async_sqlite::Error::Custom(Box::new(e)))?;
-                    Ok::<_, async_sqlite::Error>(Some(conv))
+                let mut stmt = conn.prepare_cached(&sql)?;
+                let mut rows = stmt.query(params)?;
+
+                if let Some(row) = rows.next()? {
+                    Ok(Some(FromRow::from_row(row).unwrap()))
                 } else {
-                    Ok::<_, async_sqlite::Error>(None)
+                    Ok(None)
                 }
             })
             .await
@@ -190,21 +184,20 @@ impl Client {
     }
 
     /// Execute a statement (INSERT/UPDATE/DELETE).
-    pub async fn execute<S: Statement<Self>>(&mut self, statement: &S) -> Result<u64, Error> {
-        let sql = statement.query_text();
-        let params = statement.to_params();
-        let params: &[_] = params.as_ref().map(AsRef::as_ref).unwrap_or(&[][..]);
-
+    pub async fn execute<S: Statement<Self> + Send + Sync + 'static>(
+        &mut self,
+        statement: S,
+    ) -> Result<u64, Error> {
         let inner = &self.0;
         let rows_affected = inner
             .conn(move |conn| {
-                let mut stmt = conn
-                    .prepare_cached(&sql)
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))?;
-                let changed = stmt
-                    .execute(params)
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))?;
-                Ok::<_, async_sqlite::Error>(changed as u64)
+                let sql = statement.query_text();
+                let params = statement.to_params().unwrap_or_default();
+                let params = params_from_iter(params.iter());
+
+                let mut stmt = conn.prepare_cached(&sql)?;
+                let changed = stmt.execute(params)?;
+                Ok(changed as u64)
             })
             .await
             .map_err(Error::query)?;
@@ -218,11 +211,7 @@ impl Client {
         // Begin transaction on the underlying single connection.
         let inner = &self.0;
         inner
-            .conn(|conn| {
-                conn.execute("BEGIN", ())
-                    .map(|_| ())
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))
-            })
+            .conn(|conn| conn.execute("BEGIN", ()).map(|_| ()))
             .await
             .map_err(Error::transaction)?;
 
@@ -251,11 +240,7 @@ impl Transaction {
         }
         let client = &self.client;
         client
-            .conn(|conn| {
-                conn.execute("COMMIT", ())
-                    .map(|_| ())
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))
-            })
+            .conn(|conn| conn.execute("COMMIT", ()).map(|_| ()))
             .await
             .map_err(Error::transaction)?;
         self.finished = true;
@@ -269,11 +254,7 @@ impl Transaction {
         }
         let client = &self.client;
         client
-            .conn(|conn| {
-                conn.execute("ROLLBACK", ())
-                    .map(|_| ())
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))
-            })
+            .conn(|conn| conn.execute("ROLLBACK", ()).map(|_| ()))
             .await
             .map_err(Error::transaction)?;
         self.finished = true;
@@ -284,44 +265,34 @@ impl Transaction {
     pub async fn prepare<S: StaticQueryText>(&mut self) -> Result<(), Error> {
         let client = &self.client;
         client
-            .conn(|conn| {
-                conn.prepare_cached(S::QUERY_TEXT)
-                    .map(|_stmt| ())
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))
-            })
+            .conn(|conn| conn.prepare_cached(S::QUERY_TEXT).map(|_stmt| ()))
             .await
             .map_err(Error::prepare)?;
         Ok(())
     }
 
     /// Query inside the transaction (similar to Client::query).
-    pub async fn query<Q: Query<Client>>(&mut self, query: &Q) -> Result<Vec<Q::Row>, Error>
+    pub async fn query<Q: Query<Client> + Send + Sync + 'static>(
+        &mut self,
+        query: Q,
+    ) -> Result<Vec<Q::Row>, Error>
     where
-        Q::Row: FromRow<Client> + Send,
+        Q::Row: FromRow<Client> + Send + Sync + 'static,
     {
-        // Reuse client.conn closure as in Client::query
-        let sql = query.query_text();
-        let params = query.to_params();
-        let params: &[_] = params.as_ref().map(AsRef::as_ref).unwrap_or(&[][..]);
-
         let client = &self.client;
         let rows_vec = client
             .conn(move |conn| {
-                let mut stmt = conn
-                    .prepare_cached(&sql)
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))?;
-                let mut rows = stmt
-                    .query(params)
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))?;
+                let sql = query.query_text();
+                let params = query.to_params().unwrap_or_default();
+                let params = params_from_iter(params.iter());
 
+                let mut stmt = conn.prepare_cached(&sql)?;
+                let mut rows = stmt.query(params)?;
                 let mut out = Vec::new();
-                while let Some(row) = rows.next().map_err(|e| async_sqlite::Error::Rusqlite(e))? {
-                    out.push(
-                        FromRow::from_row(row)
-                            .map_err(|e| async_sqlite::Error::Custom(Box::new(e)))?,
-                    );
+                while let Some(row) = rows.next()? {
+                    out.push(FromRow::from_row(row).unwrap());
                 }
-                Ok::<_, async_sqlite::Error>(out)
+                Ok(out)
             })
             .await
             .map_err(Error::query)?;
@@ -329,32 +300,24 @@ impl Transaction {
         Ok(rows_vec)
     }
 
-    pub async fn query_one<Q: QueryOne<Client>>(&mut self, query: &Q) -> Result<Q::Row, Error>
+    pub async fn query_one<Q: QueryOne<Client> + Send + Sync + 'static>(
+        &mut self,
+        query: Q,
+    ) -> Result<Q::Row, Error>
     where
-        Q::Row: FromRow<Client> + Send,
+        Q::Row: FromRow<Client> + Send + Sync + 'static,
     {
-        let sql = query.query_text();
-        let params = query.to_params();
-        let params: &[_] = params.as_ref().map(AsRef::as_ref).unwrap_or(&[][..]);
-
         let client = &self.client;
         let row = client
             .conn(move |conn| {
-                let mut stmt = conn
-                    .prepare_cached(&sql)
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))?;
-                let mut rows = stmt
-                    .query(params)
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))?;
-                let row = rows
-                    .next()
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))?
-                    .ok_or(async_sqlite::Error::Rusqlite(
-                        rusqlite::Error::QueryReturnedNoRows,
-                    ))?;
-                let conv =
-                    FromRow::from_row(row).map_err(|e| async_sqlite::Error::Custom(Box::new(e)))?;
-                Ok::<_, async_sqlite::Error>(conv)
+                let sql = query.query_text();
+                let params = query.to_params().unwrap_or_default();
+                let params = params_from_iter(params.iter());
+
+                let mut stmt = conn.prepare_cached(&sql)?;
+                let mut rows = stmt.query(params)?;
+                let row = rows.next()?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+                Ok(FromRow::from_row(row).unwrap())
             })
             .await
             .map_err(Error::query)?;
@@ -362,32 +325,26 @@ impl Transaction {
         Ok(row)
     }
 
-    pub async fn query_opt<Q: QueryOne<Client>>(
+    pub async fn query_opt<Q: QueryOne<Client> + Send + Sync + 'static>(
         &mut self,
-        query: &Q,
+        query: Q,
     ) -> Result<Option<Q::Row>, Error>
     where
-        Q::Row: FromRow<Client> + Send,
+        Q::Row: FromRow<Client> + Send + Sync + 'static,
     {
-        let sql = query.query_text();
-        let params = query.to_params();
-        let params: &[_] = params.as_ref().map(AsRef::as_ref).unwrap_or(&[][..]);
-
         let client = &self.client;
         let opt = client
             .conn(move |conn| {
-                let mut stmt = conn
-                    .prepare_cached(&sql)
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))?;
-                let mut rows = stmt
-                    .query(params)
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))?;
-                if let Some(row) = rows.next().map_err(|e| async_sqlite::Error::Rusqlite(e))? {
-                    let conv = FromRow::from_row(row)
-                        .map_err(|e| async_sqlite::Error::Custom(Box::new(e)))?;
-                    Ok::<_, async_sqlite::Error>(Some(conv))
+                let sql = query.query_text();
+                let params = query.to_params().unwrap_or_default();
+                let params = params_from_iter(params.iter());
+
+                let mut stmt = conn.prepare_cached(&sql)?;
+                let mut rows = stmt.query(params)?;
+                if let Some(row) = rows.next()? {
+                    Ok(Some(FromRow::from_row(row).unwrap()))
                 } else {
-                    Ok::<_, async_sqlite::Error>(None)
+                    Ok(None)
                 }
             })
             .await
@@ -396,21 +353,20 @@ impl Transaction {
         Ok(opt)
     }
 
-    pub async fn execute<S: Statement<Client>>(&mut self, statement: &S) -> Result<u64, Error> {
-        let sql = statement.query_text();
-        let params = statement.to_params();
-        let params: &[_] = params.as_ref().map(AsRef::as_ref).unwrap_or(&[][..]);
-
+    pub async fn execute<S: Statement<Client> + Send + Sync + 'static>(
+        &mut self,
+        statement: S,
+    ) -> Result<u64, Error> {
         let client = &self.client;
         let rows_affected = client
             .conn(move |conn| {
-                let mut stmt = conn
-                    .prepare_cached(&sql)
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))?;
-                let changed = stmt
-                    .execute(params)
-                    .map_err(|e| async_sqlite::Error::Rusqlite(e))?;
-                Ok::<_, async_sqlite::Error>(changed as u64)
+                let sql = statement.query_text();
+                let params = statement.to_params().unwrap_or_default();
+                let params = params_from_iter(params.iter());
+
+                let mut stmt = conn.prepare_cached(&sql)?;
+                let changed = stmt.execute(params)?;
+                Ok(changed as u64)
             })
             .await
             .map_err(Error::query)?;

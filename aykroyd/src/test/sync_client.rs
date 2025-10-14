@@ -229,7 +229,7 @@ impl TestClient {
         self.execute_results.pop().unwrap_or(Ok(0))
     }
 
-    pub fn transaction(&mut self) -> Result<Transaction> {
+    pub fn transaction(&mut self) -> Result<Transaction<'_>> {
         self.records.push(Record {
             text: "BEGIN".into(),
             params: None,
