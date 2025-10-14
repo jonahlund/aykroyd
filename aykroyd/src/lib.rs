@@ -350,6 +350,9 @@ pub mod error;
 pub mod query;
 pub mod row;
 
+#[cfg(feature = "async-sqlite")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async-sqlite")))]
+pub mod async_sqlite;
 #[cfg(feature = "mysql")]
 #[cfg_attr(docsrs, doc(cfg(feature = "mysql")))]
 pub mod mysql;
