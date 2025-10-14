@@ -22,8 +22,7 @@ where
     T: turso_core::types::FromValue,
 {
     fn from_column(row: &turso::Row, name: &str) -> Result<Self, Error> {
-        // row.get(name).map_err(Error::from_column)
-        todo!()
+        row.get(name).map_err(Error::from_column)
     }
 }
 
