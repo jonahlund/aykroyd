@@ -116,11 +116,14 @@ impl Client {
 
         let mut rows = statement.query(params).await.map_err(Error::query)?;
 
-        rows.next()
+        let row = rows
+            .next()
             .await
             .map_err(Error::query)?
             .ok_or_else(|| Error::query(turso::Error::QueryReturnedNoRows))
-            .and_then(|row| FromRow::from_row(&row))
+            .and_then(|row| FromRow::from_row(&row));
+        _ = rows.next().await;
+        row
     }
 
     pub async fn query_opt<Q: QueryOne<Self>>(&self, query: &Q) -> Result<Option<Q::Row>, Error> {
@@ -132,11 +135,14 @@ impl Client {
 
         let mut rows = statement.query(params).await.map_err(Error::query)?;
 
-        rows.next()
+        let row = rows
+            .next()
             .await
             .map_err(Error::query)?
             .map(|row| FromRow::from_row(&row))
-            .transpose()
+            .transpose();
+        _ = rows.next().await;
+        row
     }
 
     pub async fn execute<S: Statement<Self>>(&self, statement: &S) -> Result<u64, Error> {
@@ -224,11 +230,14 @@ impl<'a> Transaction<'a> {
 
         let mut rows = statement.query(params).await.map_err(Error::query)?;
 
-        rows.next()
+        let row = rows
+            .next()
             .await
             .map_err(Error::query)?
             .ok_or_else(|| Error::query(turso::Error::QueryReturnedNoRows))
-            .and_then(|row| FromRow::from_row(&row))
+            .and_then(|row| FromRow::from_row(&row));
+        _ = rows.next().await;
+        row
     }
 
     pub async fn query_opt<Q: QueryOne<Client>>(&self, query: &Q) -> Result<Option<Q::Row>, Error> {
@@ -240,11 +249,14 @@ impl<'a> Transaction<'a> {
 
         let mut rows = statement.query(params).await.map_err(Error::query)?;
 
-        rows.next()
+        let row = rows
+            .next()
             .await
             .map_err(Error::query)?
             .map(|row| FromRow::from_row(&row))
-            .transpose()
+            .transpose();
+        _ = rows.next().await;
+        row
     }
 
     pub async fn execute<S: Statement<Client>>(&self, statement: &S) -> Result<u64, Error> {
